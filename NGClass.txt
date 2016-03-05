@@ -1,0 +1,394 @@
+var mainApp = angular.module("mainApp", ["ngRoute", "checklist-model"]);
+mainApp.constant('myConst', { url: 'http://localhost:29752/' });
+
+mainApp.service("DataService", function ($window, $http) {
+    this.save = function (stud) {
+        console.log("Save service called.");
+        var tempStudList = this.list();
+        if (stud.StudentId == null) {
+            var d = new Date();
+            var n = d.getTime();
+            stud.StudentId = n;
+            tempStudList.push(stud);
+        }
+        else {
+            for (var i = 0; i < tempStudList.length; i++) {
+                if (tempStudList[i].StudentId == stud.StudentId) {
+                    tempStudList[i] = stud;
+                }
+            }
+        }
+
+        localStorage.setItem("StudentDB", JSON.stringify(tempStudList));
+    };
+    this.find = function (id) {
+        var arr = this.list();
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i].StudentId == id) {
+                return arr[i];
+            }
+        }
+        return {};
+    };
+    this.sdelete = function (id) {
+        console.log("Delete service called. " + id);
+        var arr = this.list();
+        //console.log(arr);
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i].StudentId == id) {
+                arr.splice(i, 1);  //removes 1 element at position i 
+                break;
+            }
+        }
+        //console.log(arr);
+        localStorage.setItem("StudentDB", JSON.stringify(arr));
+    };
+    this.list = function () {
+        var localStorageData = $window.localStorage["StudentDB"];
+        if (!angular.isUndefined(localStorageData)) {
+            console.log(JSON.parse(localStorage.getItem("StudentDB")));
+            localStorageData = JSON.parse(localStorage.getItem("StudentDB"));
+        }
+        else {
+            localStorageData = [];
+        }
+        return localStorageData;
+    };
+    this.syncto = function () {
+        debugger;
+        var arr = this.list();
+        //var str = JSON.stringify("[{'name': 'Varun','email': 'var@gmail.com'},{'name': 'Virat','email': 'vir@gmail.com'}]");
+        var str = angular.toJson(arr);
+        $http({
+            url: 'http://localhost:25297/StudentProfile.asmx/SyncTo',
+            method: "POST",
+            datatype: "json",
+            data: { arr: str }
+            //data: { arr: angular.toJson(arr) }
+            //data: arr
+        })
+        .success(function (response) {
+            alert("Synced to cloud.");
+        })
+    };
+    this.syncfrom = function () {
+        $http({
+            url: 'http://localhost:25297/StudentProfile.asmx/SyncFrom',
+            method: "GET"
+        })
+        .success(function (response) {
+            console.log(response);
+            localStorage.setItem("StudentDB", JSON.stringify(response));
+        })
+    };
+});
+
+
+**************************************************************************
+
+mainApp.config(function($routeProvider){
+    $routeProvider
+        .when('/add/:sid',{
+            templateUrl : '/views/add.html',
+            controller : 'addController'
+        })
+        .when('/add', {
+            templateUrl: '/views/add.html',
+            controller: 'addController'
+        })
+        .when('/list',{
+            templateUrl : '/views/list.html',
+            controller : 'listController'
+        })
+        .when('/syncto', {
+            templateUrl: '/views/syncto.html',
+            controller: 'syncController'
+        })
+        .when('/syncfrom', {
+            templateUrl: '/views/syncfrom.html',
+            controller: 'syncController'
+        })
+        .otherwise({
+            redirectTo: '/add'
+        });
+    });
+************************************************************************
+
+mainApp.controller('addController', function ($scope, $http, $window, DataService, $routeParams) {
+    $scope.messageBox = "";
+    $scope.stateList = StateList;
+    $scope.districtList = DistrictList;
+    $scope.tehsilList = TehsilList;
+    $scope.quals = [{ "id": 1, "name": "SSC" }, { "id": 2, "name": "HSC" }, { "id": 3, "name": "DEGREE" },
+        { "id": 4, "name": "DIPLOMA" }, { "id": 5, "name": "CERTIFICATE"}];
+
+    if ($routeParams.sid == null) {
+        $scope.student = {};
+    }
+    else {
+        var editStudObj = DataService.find($routeParams.sid);
+        $scope.student = editStudObj;
+        $scope.student.DOB = new Date(editStudObj.DOB);
+    }
+    $scope.studentList = [];
+
+    $scope.saveStudent = function () {
+        $scope.editmode = false;
+        DataService.save($scope.student);
+    };
+});
+
+***************************************************
+
+mainApp.controller('listController', function ($scope, $http, $window, DataService) {
+    $scope.DeleteStudent = function (id) {
+        DataService.sdelete(id);
+        $scope.studentList = DataService.list();
+    };
+    $scope.doSorting = function (field) {
+        if ($scope.sortOrderAsc === 'undefined') {
+            $scope.sortOrderAsc = true;
+        }
+        else {
+            $scope.sortOrderAsc = !$scope.sortOrderAsc;
+        }
+        $scope.sortOrder = field;
+    };
+
+***************************************************
+
+[HttpGet]
+        public string ListStudent()
+        {
+            objDbUtility = new DbUtility();
+            return objDbUtility.GetAllDocumentsWithObjectId("Student");
+        }
+        [HttpGet]
+        public string FindStudent(string sid)
+        {
+            objDbUtility = new DbUtility();
+            return objDbUtility.GetDocumentByIdWithObjectId("Student", "_id", ObjectId.Parse(sid));
+        }
+        [HttpPost]
+        public bool AddStudent(string student)
+        {
+            objDbUtility = new DbUtility();
+            return objDbUtility.SaveDocument(student, "Student");
+        }
+        [HttpPost]
+        public bool UpdateStudent(string student, string sid)
+        {
+            objDbUtility = new DbUtility();
+            return objDbUtility.UpdateDocumentByObjectId(student, "Student");
+        }
+        [HttpPost]
+        public bool DeleteStudent(string sid)
+        {
+            objDbUtility = new DbUtility();
+            return objDbUtility.DeleteDocument("Student", "_id", sid);
+        } 
+
+public bool SyncTo(string arr)
+        {
+            var collection = mongoDB.GetCollection<BsonArray>("Student");
+            var docs = BsonSerializer.Deserialize<BsonArray>(arr);
+            collection.InsertBatch(docs);
+            return true;
+        }
+    $scope.studentList = DataService.list();
+    console.log("Get called");
+***************************************************************
+
+<div>
+    <form class="form-horizontal" ng-submit="saveStudent()" role="form">
+    <h1>
+        Add Student</h1>
+    <div class="form-group">
+        <div class="col-md-2">
+            Student's Name:</div>
+        <div class="col-md-10">
+            <input type="text" placeholder="First Name" ng-model="student.Firstname" required />&nbsp;
+            <input type="text" placeholder="Middle Name" ng-model="student.Middlename" />&nbsp;
+            <input type="text" placeholder="Last Name" ng-model="student.Lastname" />
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Gender:</div>
+        <div class="col-md-4">
+            <label class="radio-inline">
+                <input type="radio" name="gender" value="Male" ng-model="student.Gender" />Male</label>
+            <label class="radio-inline">
+                <input type="radio" name="gender" value="Female" ng-model="student.Gender" />Female</label>
+            <label class="radio-inline">
+                <input type="radio" name="gender" value="Others" ng-model="student.Gender" />Others</label>
+        </div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Date of Birth:</div>
+        <div class="col-md-3">
+            <input type="date" class="form-control" ng-model="student.DOB" /></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Mobile:</div>
+        <div class="col-md-3">
+            <input type="text" ng-model="student.Mobile" /></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Email:</div>
+        <div class="col-md-3">
+            <input type="email" ng-model="student.Email" /></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Qualifications:</div>
+        <div class="col-md-8">
+            <label class="checkbox-inline" ng-repeat="qual in quals">
+                <input type="checkbox" data-checklist-model="student.Qualifications" data-checklist-value="qual" />
+                {{qual.name}}</label></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Address Line:</div>
+        <div class="col-md-4">
+            <input type="text" ng-model="student.Address.Line" /></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            State:</div>
+        <div class="col-md-4">
+            <select class="form-control" ng-model="student.Address.State " ng-options="s as s.stateName for s in stateList | orderBy:'stateName' track by s.stateId">
+            </select></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            District:</div>
+        <div class="col-md-4">
+            <select class="form-control" ng-model="student.Address.District" ng-disabled="!student.Address.State.stateId"
+                ng-options="d as d.districtName for d in districtList |filter:{stateId: student.Address.State.stateId } :true |orderBy:'districtName' track by d.districtId">
+                <option value>--Select District--</option>
+            </select></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Taluka:</div>
+        <div class="col-md-4">
+            <select class="form-control" ng-model="student.Address.Tehsil" ng-disabled="!student.Address.District.districtId"
+                ng-options="t as t.tehsilName for t in tehsilList |filter:{districtId: student.Address.District.districtId } :true |orderBy:'tehsilName' track by t.tehsilId">
+                <option value>--Select Tehsil--</option>
+            </select></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            Pincode:</div>
+        <div class="col-md-3">
+            <input type="text" ng-model="student.Address.Pincode" /></div>
+    </div>
+    <div class="form-group">
+        <div class="col-md-3">
+            <input type="submit" value="Save" class="btn btn-success" /></div>
+    </div>
+    <pre ng-bind="student | json"></pre>
+    </form>
+</div>
+
+*******************************************************
+
+<div>
+    <shortcut></shortcut>
+    <div class="page-header">
+        <h1>
+            List of Students</h1>
+    </div>
+    <div ng-show="showMessage" class="alert alert-success">
+        {{message}}
+    </div>
+    <div class="form-group">
+        <div class="col-md-2">
+            <label class="checkbox-inline text-danger">
+                <input type="checkbox" name="showsearch" ng-model="showsearch" /><b>Show Search</b></label>
+        </div>
+        <div class="col-md-4 col-md-push-6">
+            <input class="form-control" type="text" placeholder="Search" ng-hide="!showsearch"
+                ng-model="searchText" />
+        </div>
+    </div>
+    <div class="form-group">
+        <table class="table table-striped" ng-show="studentList.length > 0">
+            <thead>
+                <tr>
+                    <th style="cursor:pointer;" ng-click="doSorting('Firstname')">
+                        Firstname
+                    </th>
+                    <th style="cursor:pointer;" ng-click="doSorting('Lastname')">
+                        Lastname
+                    </th>
+                    <th>
+                        Gender
+                    </th>
+                    <th>
+                        Date of Birth
+                    </th>
+                    <th>
+                        Mobile
+                    </th>
+                    <th>
+                        Line
+                    </th>
+                    <th>
+                        State
+                    </th>
+                    <th>
+                        District
+                    </th>
+                    <th>
+                        Edit
+                    </th>
+                    <th>
+                        Delete
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr ng-repeat="stud in studentList | filter : searchText | orderBy : sortOrder : sortOrderAsc">
+                    <td>
+                        {{stud.Firstname }}
+                    </td>
+                    <td>
+                        {{stud.Lastname}}
+                    </td>
+                    <td>
+                        {{stud.Gender}}
+                    </td>
+                    <td>
+                        {{stud.DOB | date}}
+                    </td>
+                    <td>
+                        {{stud.Mobile}}
+                    </td>
+                    <td>
+                        {{stud.Address.Line}}
+                    </td>
+                    <td>
+                        {{stud.Address.State.stateName}}
+                    </td>
+                    <td>
+                        {{stud.Address.District.districtName}}
+                    </td>
+                    <td>
+                        <a href="#add/{{stud._id.$oid}}" class="glyphicon glyphicon-pencil"></a>
+                    </td>
+                    <td>
+                        
+                        <a href="" ng-click="deleteStudent(stud.StudentId)" class="glyphicon glyphicon-trash alert-danger">
+                        </a>
+                        
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
